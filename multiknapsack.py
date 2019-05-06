@@ -8,7 +8,7 @@ from multiprocessing import Pool
 
 
 class MultiKnapsack:
-    path = 'data/MinMaxTypeMultiKnapsackInput-3000.json'
+    path = 'data/MinMaxTypeMultiKnapsackInput-1000.json'
 
     def __init__(self):
         with open(self.path) as f:
@@ -77,7 +77,7 @@ class MultiKnapsack:
             = W_ub, LW_ub, P_ub, T_ub, R_ub
 
 
-    def get_violations_with(self, violations: np.ndarray, upper_bound=1):
+    def get_violations_with(self, violations, upper_bound=1):
         '''
         Convert negative violations in to real violations
         :param violations: current violations (which can have negative values)
@@ -86,7 +86,7 @@ class MultiKnapsack:
         if type(violations) == np.ndarray:
             value = np.array(violations.copy())
             value[value < 0] = 0
-            value[value > 0] = upper_bound # make all constraint are equal
+            value[value > 0] = upper_bound  # make all constraint are equal
             return value
         else:
             if violations < 0:
@@ -96,16 +96,15 @@ class MultiKnapsack:
             return violations
 
     def update_W_violations(self):
-        '''
+        """
         Update weight 1 violations
 
-        W_violations will have negative values (easier in calculating getAssignDelta).
-        If we need to convert into real violations, we can use get_violations_with(self.W_violations)
+            W_violations will have negative values (easier in calculating getAssignDelta).
+            If we need to convert into real violations, we can use get_violations_with(self.W_violations)
         :return:
-        '''
-        result = self.w.reshape([self.n, 1]).transpose() @ self.x - self.W # tong cua item trong bin tru W cua bin
-        # result[result < 0] = 0
-        # result = self.get_violations_with(result)
+        """
+
+        result = self.w.reshape([self.n, 1]).transpose() @ self.x - self.W  # tong cua item trong bin tru W cua bin
         self.W_violations = np.reshape(result, [-1])
 
     def update_LW_violations(self):
@@ -122,18 +121,17 @@ class MultiKnapsack:
         '''
         # solution 1
         result = self.LW - self.w.reshape([self.n, 1]).transpose() @ self.x
-        # result = self.get_violations_with(result)
         n_items_in_bins = np.sum(self.x, axis=0)
         n_items_in_bins[n_items_in_bins > 0] = 1
-        self.LW_violations = np.reshape(np.multiply(result, n_items_in_bins), [-1])
+        self.LW_violations = np.reshape(result, [-1]) * np.reshape(n_items_in_bins, [-1])
+        #np.reshape(np.multiply(result, n_items_in_bins), [-1])
 
         # solution 2
         # result = self.LW - self.w.reshape([self.n, 1]).transpose() @ self.x
         # self.LW_violations = np.reshape(result, [-1])
 
     def update_P_violations(self):
-        result = self.p.reshape([self.n, 1]).transpose() @ self.x - self.W
-        # result = self.get_violations_with(result)
+        result = self.p.reshape([self.n, 1]).transpose() @ self.x - self.P
         self.P_violations = np.reshape(result, [-1])
 
     # t and r must be not equal to 0, for using np multiply
@@ -145,17 +143,16 @@ class MultiKnapsack:
             T_current[i] = np.count_nonzero(np.unique(result[:, i]))
 
         result = T_current - self.T
-        # result = self.get_violations_with(result)
         self.T_violations = result
 
     def update_R_violations(self):
         result = np.multiply(np.transpose([self.r] * self.m), self.x)
+
         R_current = np.zeros(self.m)
         for i in range(result.shape[1]):
             R_current[i] = np.count_nonzero(np.unique(result[:, i]))
 
         result = R_current - self.R
-        # result = self.get_violations_with(result)
         self.R_violations = result
 
     def update_violations(self):
@@ -188,7 +185,6 @@ class MultiKnapsack:
         print("R violations:", self.R_violations, "\t total: ", np.sum(self.get_violations_with(self.R_violations, self.R_upper_bound)))
         print("Total violations:", self.get_violations())
 
-
     def init_solution(self):
         '''
         Random take each item into random bin.
@@ -196,41 +192,18 @@ class MultiKnapsack:
         '''
         self.x = np.zeros([self.n, self.m])
 
-        with open('solution/greedy_result.json') as f:
-            line = f.readline()
-            line = line.split("[")[1]
-            line = line.split("]")[0]
-            bins = line.split(" ")
-            bins = [int(b) for b in bins]
-
-            # data = json.load(f)
-            # bins = list(data["binOfItem"])
+        with open('solution/greedy_result_1k.json') as f:
+            data = json.load(f)
+            bins = list(data["bin"])
             for i, b in enumerate(bins):
                 print(i, b)
                 self.x[i][b] = 1
-
-
-        # for i in range(self.n):
-        #     di = self.D[i]
-        #     random_j = np.random.choice(di)
-        #     self.x[i, random_j] = 1
-
-    def get_swap_delta(self, i, j1, j2):
-        # TODO
-        # phai tinh dong thoi -> sua lai ham get assign delta de chap nhan list
-        return self.get_assign_delta([i, i], [j1, j2], [self.x[i, j2], self.x[i, j1]])# + self.get_assign_delta([i], [j2], [self.x[i, j1]])
-
-    def set_swap_propagate(self, i, j1, j2):
-        temp = self.x[i, j1]
-        self.x[i, j1] = self.x[i, j2]
-        self.x[i, j2] = temp
-        self.update_violations()
 
     def set_value_propagate(self, i, j, k):
         self.x[i, j] = k
         self.update_violations()
 
-    def get_assign_delta(self, list_i, list_j, list_k):
+    def get_assign_delta(self, i, j, k):
         # NOTE: current version **just can be used for swap** or **one variable assignment**
         # gia su gan x[i][j] = k (k = 0 hoac k = 1)
         # anh huong den cac constraint nhu nao?
@@ -240,76 +213,93 @@ class MultiKnapsack:
         # old_value = self.x[i, j]
         # new value self.x[i, j] = k
 
-        # anh huong nhu nao den current violation?
-        total_delta_W_violations, total_delta_LW_violations, total_delta_P_violations, \
-        total_delta_T_violations, total_delta_R_violations = 0, 0, 0, 0, 0
+        # # anh huong nhu nao den current violation?
+        # total_delta_W_violations, total_delta_LW_violations, total_delta_P_violations, \
+        # total_delta_T_violations, total_delta_R_violations = 0, 0, 0, 0, 0
+        #
+        # for (i, j, k) in zip(list_i, list_j, list_k):
+        # W
+        # new_W_bin = self.w.reshape([self.n, 1]).transpose() @ self.x[:, j] # ton thoi gian?
+        # there is one disadvantage here when using upper bound: when bin are violated, more violations are not added.
+        delta_w = self.w[i] * (k - self.x[i, j])  # 1 or -1 when swap
+        new_W_violations = self.W_violations[j] + delta_w
+        delta_W_violations = self.get_violations_with(new_W_violations, self.W_upper_bound) -\
+                             self.get_violations_with(self.W_violations[j], self.W_upper_bound)
 
-        for (i, j, k) in zip(list_i, list_j, list_k):
-            # W
-            # new_W_bin = self.w.reshape([self.n, 1]).transpose() @ self.x[:, j] # ton thoi gian?
-            delta_w = self.w[i] * k - self.w[i] * self.x[i, j]
-            temp_W_violations = self.W_violations[j] + delta_w
-            delta_W_violations = self.get_violations_with(temp_W_violations, self.W_upper_bound) \
-                                 - self.get_violations_with(self.W_violations[j], self.W_upper_bound)
+        # LW: xet them truong hop neu bin chua chua vat nao thi delta_LW_violations = LW - self.w[i] * k
+        # if np.sum(self.x[:, j]) == 0:
+        #     delta_LW_violations = self.get_violations_with(self.LW[j] - self.w[i] * k)
+        # else:
+        delta_lw = self.w[i] * (k - self.x[i, j])
+        new_LW_violations = self.LW_violations[j] - delta_lw
+        delta_LW_violations = self.get_violations_with(new_LW_violations, self.LW_upper_bound)\
+                              - self.get_violations_with(self.LW_violations[j], self.LW_upper_bound)
 
-            # LW: xet them truong hop neu bin chua chua vat nao thi delta_LW_violations = LW - self.w[i] * k
-            # if np.sum(self.x[:, j]) == 0:
-            #     delta_LW_violations = self.get_violations_with(self.LW[j] - self.w[i] * k)
-            # else:
-            delta_lw = self.w[i] * k - self.w[i] * self.x[i, j]
-            temp_LW_violations = self.LW_violations[j] - delta_lw
-            delta_LW_violations = self.get_violations_with(temp_LW_violations, self.LW_upper_bound)\
-                                  - self.get_violations_with(self.LW_violations[j], self.LW_upper_bound)
+        # P
+        delta_p = self.p[i] * (k - self.x[i, j])
+        new_P_violations = self.P_violations[j] + delta_p
+        delta_P_violations = self.get_violations_with(new_P_violations, self.P_upper_bound) \
+                             - self.get_violations_with(self.P_violations[j], self.P_upper_bound)
 
-            # P
-            delta_p = self.p[i] * k - self.p[i] * self.x[i, j]
-            temp_P_violations = self.P_violations[j] + delta_p
-            delta_P_violations = self.get_violations_with(temp_P_violations, self.P_upper_bound) \
-                                 - self.get_violations_with(self.P_violations[j], self.P_upper_bound)
+        # T
+        T_bin = np.multiply(np.transpose(self.t), self.x[:, j])
+        T_bin = list(T_bin)
 
-            # T
-            T_bin = np.multiply(np.transpose(self.t), self.x[:, j])
-            T_bin = list(T_bin)
+        n_uniques_old = np.count_nonzero(np.unique(T_bin))
+        n_uniques = 0
+        if self.x[i][j] == 0 and k == 1:
+            T_bin.append(self.t[i])
+            n_uniques = np.count_nonzero(np.unique(T_bin))
+        elif self.x[i][j] == 1 and k == 0:
+            T_bin.remove(self.t[i])
+            n_uniques = np.count_nonzero(np.unique(T_bin))
 
-            n_uniques_old = np.count_nonzero(np.unique(T_bin))
-            n_uniques = 0
-            if self.x[i][j] == 0 and k == 1:
-                T_bin.append(self.t[i])
-                n_uniques = np.count_nonzero(np.unique(T_bin))
-            elif self.x[i][j] == 1 and k == 0:
-                T_bin.remove(self.t[i])
-                n_uniques = np.count_nonzero(np.unique(T_bin))
+        delta_t = n_uniques - n_uniques_old
+        new_T_violations = self.T_violations[j] + delta_t
+        delta_T_violations = self.get_violations_with(new_T_violations, self.T_upper_bound) \
+                             - self.get_violations_with(self.T_violations[j], self.T_upper_bound)
 
-            delta_t = n_uniques - n_uniques_old
-            temp_T_violations = self.T_violations[j] + delta_t
-            delta_T_violations = self.get_violations_with(temp_T_violations, self.T_upper_bound) \
-                                 - self.get_violations_with(self.T_violations[j], self.T_upper_bound)
+        # R
+        R_bin = np.multiply(np.transpose(self.r), self.x[:, j])
+        R_bin = list(R_bin)
 
-            # R
-            R_bin = np.multiply(np.transpose(self.r), self.x[:, j])
-            R_bin = list(R_bin)
+        n_uniques_old = np.count_nonzero(np.unique(R_bin))
+        n_uniques = 0
+        if self.x[i][j] == 0 and k == 1:
+            R_bin.append(self.r[i])
+            n_uniques = np.count_nonzero(np.unique(R_bin))
+        elif self.x[i][j] == 1 and k == 0:
+            R_bin.remove(self.r[i])
+            n_uniques = np.count_nonzero(np.unique(R_bin))
 
-            n_uniques_old = np.count_nonzero(np.unique(R_bin))
-            n_uniques = 0
-            if self.x[i][j] == 0 and k == 1:
-                R_bin.append(self.r[i])
-                n_uniques = np.count_nonzero(np.unique(R_bin))
-            elif self.x[i][j] == 1 and k == 0:
-                R_bin.remove(self.r[i])
-                n_uniques = np.count_nonzero(np.unique(R_bin))
+        delta_r = n_uniques - n_uniques_old
+        new_R_violations = self.R_violations[j] + delta_r
+        delta_R_violations = self.get_violations_with(new_R_violations, self.R_upper_bound) \
+                             - self.get_violations_with(self.R_violations[j], self.R_upper_bound)
 
-            delta_r = n_uniques - n_uniques_old
-            temp_R_violations = self.R_violations[j] + delta_r
-            delta_R_violations = self.get_violations_with(temp_R_violations, self.R_upper_bound) \
-                                 - self.get_violations_with(self.R_violations[j], self.R_upper_bound)
+        # total_delta_W_violations += delta_W_violations
+        # total_delta_LW_violations += delta_LW_violations
+        # total_delta_P_violations += delta_P_violations
+        # total_delta_T_violations += delta_T_violations
+        # total_delta_R_violations += delta_R_violations
 
-            total_delta_W_violations += delta_W_violations
-            total_delta_LW_violations += delta_LW_violations
-            total_delta_P_violations += delta_P_violations
-            total_delta_T_violations += delta_T_violations
-            total_delta_R_violations += delta_R_violations
+        # return total_delta_W_violations, total_delta_LW_violations, total_delta_P_violations, total_delta_T_violations, total_delta_R_violations
+        return np.array([delta_W_violations, delta_LW_violations, delta_P_violations, delta_T_violations, delta_R_violations])
 
-        return total_delta_W_violations, total_delta_LW_violations, total_delta_P_violations, total_delta_T_violations, total_delta_R_violations
+    def get_swap_delta(self, i, j1, j2):
+        # TODO
+        # phai tinh dong thoi -> sua lai ham get assign delta de chap nhan list
+        result = [0, 0, 0, 0, 0]
+        delta_1 = self.get_assign_delta(i, j1, self.x[i, j2])
+        delta_2 = self.get_assign_delta(i, j2, self.x[i, j1])
+
+        return delta_1 + delta_2
+
+    def set_swap_propagate(self, i, j1, j2):
+        temp = self.x[i, j1]
+        self.x[i, j1] = self.x[i, j2]
+        self.x[i, j2] = temp
+        self.update_violations()
 
     def get_numbers_of_satisfied_items_and_violations(self):
         violations = self.get_all_bin_violations()[:-1]
@@ -364,8 +354,8 @@ class MultiKnapsack:
             #     continue
 
             start_time_propagate = time.time()
-            # if current_j != di[index_min]:
-            self.set_swap_propagate(random_i, current_j, di[index_min])
+            if current_j != di[index_min]:
+                self.set_swap_propagate(random_i, current_j, di[index_min])
             end_time_propagate = time.time()
 
             n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
