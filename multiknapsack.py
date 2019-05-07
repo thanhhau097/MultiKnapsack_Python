@@ -1,14 +1,11 @@
-# READ DATA
-
-from __future__ import print_function
 import json
 import numpy as np
 import time
-from multiprocessing import Pool
+from tqdm import tqdm
 
 
 class MultiKnapsack:
-    path = 'data/MinMaxTypeMultiKnapsackInput-1000.json'
+    path = 'data/MinMaxTypeMultiKnapsackInput-3000.json'
 
     def __init__(self):
         with open(self.path) as f:
@@ -53,6 +50,7 @@ class MultiKnapsack:
         self.T = np.array(self.T)
         self.R = np.array(self.R)
 
+        self.ignored_bin = self.ignore_invalid_bin()
         # local search variable
         # can chuan hoa lai id cua t va r # tu 0 -> n_types, 0 -> n->bin
         # de su dung trong bin_t, bin_r
@@ -108,6 +106,23 @@ class MultiKnapsack:
     def normalize_violations(self, vector, max_value, coef=1):
         return vector / max_value * coef
 
+    def ignore_invalid_bin(self):
+        print("Ignoring bins")
+        W = np.array(self.W)
+        LW = np.array(self.LW)
+
+        ignored_bin_1 = set(np.where(W <= 0)[0])
+        ignored_bin_2 = set(np.where(W <= LW)[0])
+        ignored_bin = list(ignored_bin_1.union(ignored_bin_2))
+
+        for i in tqdm(range(len(self.D))):
+            for bin in (ignored_bin):
+                if bin in self.D[i]:
+                    self.D[i].remove(bin)
+
+        return ignored_bin
+
+
     def init_solution(self):
         '''
         Random take each item into random bin.
@@ -115,9 +130,21 @@ class MultiKnapsack:
         '''
         self.x = np.zeros([self.n, self.m])
 
-        with open('solution/mix_1k.json') as f:
-            data = json.load(f)
-            bins = list(data["bin"])
+        # with open('solution/mix_3k_lucky.json') as f:
+        #     data = json.load(f)
+        #     bins = list(data["bin"])
+        #     for i, b in enumerate(bins):
+        #         # print(i, b)
+        #         self.x[i][b] = 1
+        #         self.bin_t[self.t[i]][b] += 1
+        #         self.bin_r[self.r[i]][b] += 1
+
+        with open('solution/g15_result_3k.txt', 'r') as f:
+            line = f.readline()
+            line.replace("-1", "1846")
+            line = line.split(' ')[:-1]
+            bins = [int(b) for b in line]
+
             for i, b in enumerate(bins):
                 # print(i, b)
                 self.x[i][b] = 1
@@ -402,6 +429,7 @@ class MultiKnapsack:
         return self.n_satisfied_items * 5 + self.get_violations()
 
     def search(self):
+        one_time = True
         while True:
             # TODO
             # viec khong co objective funtion lien ket giua item va violations la 1 han che, lam giam di so item hien thoa man (tru khi nem vao bin cuoi)
@@ -409,29 +437,35 @@ class MultiKnapsack:
             self.solve_last_bin()
 
             # sau khi xu ly xong last bin, can nem tat ca item hien dang o bin cuoi sang nhung bin khac dang vi pham rang buoc
-            print("-------------------------------")
-            print("Taking items from last bin to another bin")
-            print("-------------------------------")
+            if one_time:
+                one_time = False
+                print("-------------------------------")
+                print("Taking items from last bin to another bin")
+                print("-------------------------------")
 
-            selected_bins = []
-            last_bin = self.m - 1
+                selected_bins = []
+                last_bin = self.m - 1
 
-            n_items_in_last_bin = self.current_n_items_in_bin[-1]  # np.sum(self.x[:last_bin])
-            # bin_violations = self.get_all_bin_violations()
+                # bin_violations = self.get_all_bin_violations()
+                # for i, vio in enumerate(self.get_all_bin_violations()[::-1]):
+                #     if np.sum(self.x[:, last_bin - i]) == 0:
+                #         selected_bins.append(last_bin - i)
+                for i, vio in enumerate(self.get_all_bin_violations()):
+                    if (vio > 0) or (self.current_n_items_in_bin[i] == 0):
+                        selected_bins.append(i)
 
-            # for i, vio in enumerate(self.get_all_bin_violations()[::-1]):
-            #     if np.sum(self.x[:, last_bin - i]) == 0:
-            #         selected_bins.append(last_bin - i)
-            for i, vio in enumerate(self.get_all_bin_violations()):
-                if vio > 0:
-                    selected_bins.append(i)
+                last_bin_items = np.where(self.x[:, last_bin] == 1)[0]
 
-            last_bin_items = np.where(self.x[:, last_bin] == 1)[0]
+                available_bins = set(selected_bins).difference(self.ignored_bin)
 
-            for i in last_bin_items:
-                selected_bin = selected_bins[int(i % n_items_in_last_bin)]
-                self.x[i, selected_bin] = 1
-                self.x[i, last_bin] = 0
+                for i in tqdm(last_bin_items):
+                    # nam trong selected_bins intersection self.D[i] - self.ignored_bin
+                    available_bins = list(set(available_bins).intersection(set(self.D[i])))
+                    if len(available_bins) == 0:
+                        selected_bin = self.m - 1
+                    else:
+                        selected_bin = np.random.choice(available_bins)
+                        self.set_swap_propagate(i, last_bin, selected_bin)
 
             self.update_violations()
             print("-------------------------------")
@@ -442,7 +476,7 @@ class MultiKnapsack:
             # mat khac, no co the nem vao bin cuoi de giam het rang buoc
 
             it = 0
-            while (it < 10000):
+            while (it < 20000):
                 start_time = time.time()
                 random_i = np.random.randint(self.n)
                 current_bin = np.where(self.x[random_i, :] == 1)[0][0]
@@ -453,21 +487,23 @@ class MultiKnapsack:
                 start_time_get_swap = time.time()
                 arr_delta_violations = []
 
-                # # multiprocess
-                # p = Pool(4)
-                # p.map(self.append_violations, di)
-
-                next_bin = self.m - 1
+                # next_bin = self.m - 1
                 next_bins = []
 
                 for d in di:
                     delta_1, delta_2, _, _ = self.get_swap_delta(random_i, current_bin, d)
                     if np.sum(delta_1 + delta_2) <= 0 and np.sum(delta_2) <= 0:
-                        # next_bins.append(d)
-                        next_bin = d
-                        break
+                        next_bins.append(d)
+                        # next_bin = d
+                        # break
                     # arr_delta_violations.append(np.sum(delta_1 + delta_2))
 
+                if (self.m - 1) in next_bins:
+                    next_bins.remove(self.m - 1)
+                if len(next_bins) == 0:
+                    next_bin = self.m - 1
+                else:
+                    next_bin = np.random.choice(next_bins)
                 end_time_get_swap = time.time()
 
                 # # chon random bin trong nhung bin tot nhat
@@ -492,6 +528,9 @@ class MultiKnapsack:
                 end_time_propagate = time.time()
 
                 n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
+                if n_items > self.n_satisfied_items:
+                    self.get_solution_file()
+                    self.n_satisfied_items = n_items
                 # violations = self.get_violations()
                 print("Step, ", it,
                       # "\tViolations:", violations, "\t Items: ",
@@ -549,6 +588,10 @@ class MultiKnapsack:
             self.set_swap_propagate(item, bin_index, next_bin)
 
             n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
+            if n_items > self.n_satisfied_items:
+                self.get_solution_file()
+                self.n_satisfied_items = n_items
+
             print("Step, ", i, "\tViolations:", np.sum(violations), "\t Items: ", n_items, "\t------>\t Take item ", item,
                   "\tfrom bin ", bin_index, "\tto bin", next_bin, "\t in", time.time() - start_time,
                   "seconds")
@@ -556,6 +599,17 @@ class MultiKnapsack:
     def search_with_most_violated_bins(self):
         # vong lap: bin cuoi -> bin phat nhieu nhat -> bin cuoi -> ...
         pass
+
+    def get_solution_file(self, path='solution/solution.json'):
+
+        with open(path, 'w') as f:
+            bin_indexes = []
+            for i in range(self.n):
+                bin_index = int(np.where(self.x[i, :])[0][0])
+                bin_indexes.append(bin_index)
+            bin_indexes = list(bin_indexes)
+            solution = {"bin": bin_indexes}
+            json.dump(solution, f)
 
 
 solver = MultiKnapsack()
