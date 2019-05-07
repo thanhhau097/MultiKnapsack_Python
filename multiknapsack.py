@@ -69,8 +69,6 @@ class MultiKnapsack:
         #
         self.current_n_items_in_bin = np.zeros(self.m)
 
-
-
         # MODEL
         self.W_violations = np.array([0] * self.m)
         self.LW_violations = np.array([0] * self.m)
@@ -130,26 +128,26 @@ class MultiKnapsack:
         '''
         self.x = np.zeros([self.n, self.m])
 
-        # with open('solution/mix_3k_lucky.json') as f:
-        #     data = json.load(f)
-        #     bins = list(data["bin"])
-        #     for i, b in enumerate(bins):
-        #         # print(i, b)
-        #         self.x[i][b] = 1
-        #         self.bin_t[self.t[i]][b] += 1
-        #         self.bin_r[self.r[i]][b] += 1
-
-        with open('solution/g15_result_3k.txt', 'r') as f:
-            line = f.readline()
-            line.replace("-1", "1846")
-            line = line.split(' ')[:-1]
-            bins = [int(b) for b in line]
-
+        with open('solution/mix_3k_lucky.json') as f:
+            data = json.load(f)
+            bins = list(data["bin"])
             for i, b in enumerate(bins):
                 # print(i, b)
                 self.x[i][b] = 1
                 self.bin_t[self.t[i]][b] += 1
                 self.bin_r[self.r[i]][b] += 1
+
+        # with open('solution/g15_result_3k.txt', 'r') as f:
+        #     line = f.readline()
+        #     line.replace("-1", "1846")
+        #     line = line.split(' ')[:-1]
+        #     bins = [int(b) for b in line]
+        #
+        #     for i, b in enumerate(bins):
+        #         # print(i, b)
+        #         self.x[i][b] = 1
+        #         self.bin_t[self.t[i]][b] += 1
+        #         self.bin_r[self.r[i]][b] += 1
 
         self.current_n_items_in_bin = np.sum(self.x, axis=0)
 
@@ -212,7 +210,7 @@ class MultiKnapsack:
 
     # t and r must be not equal to 0, for using np multiply
     def update_T_violations(self):
-        result = np.multiply(np.transpose([self.t] * self.m), self.x)
+        result = np.multiply(np.transpose([np.array(self.t) + 1] * self.m), self.x)
 
         T_current = np.zeros(self.m)
         for i in range(result.shape[1]):
@@ -222,7 +220,7 @@ class MultiKnapsack:
         self.T_violations = result
 
     def update_R_violations(self):
-        result = np.multiply(np.transpose([self.r] * self.m), self.x)
+        result = np.multiply(np.transpose([np.array(self.r) + 1] * self.m), self.x)
 
         R_current = np.zeros(self.m)
         for i in range(result.shape[1]):
@@ -299,7 +297,7 @@ class MultiKnapsack:
         delta_lw = self.w[i] * (k - self.x[i, j])
         # TODO
         # check case 1->0, 0->1
-        new_LW_violations = self.LW_violations[j] + delta_lw
+        new_LW_violations = self.LW_violations[j] - delta_lw
         if self.current_n_items_in_bin[j] == 0: #np.sum(self.x[:, j]) == 0:  # neu bin khong chua item nao
             new_LW_violations = self.LW[j] - self.w[i]
 
@@ -420,7 +418,7 @@ class MultiKnapsack:
         items_in_bins = self.current_n_items_in_bin[:-1]  # np.sum(self.x, axis=0)[:-1]  #
 
         n_satisfied_items = np.sum(items_in_bins[violations == 0])
-        return n_satisfied_items, violations
+        return n_satisfied_items, np.sum(violations)
 
     def objective_function(self):
         # TODO
@@ -491,8 +489,10 @@ class MultiKnapsack:
                 next_bins = []
 
                 for d in di:
-                    delta_1, delta_2, _, _ = self.get_swap_delta(random_i, current_bin, d)
-                    if np.sum(delta_1 + delta_2) <= 0 and np.sum(delta_2) <= 0:
+                    delta_1, delta_2, _, new_violations_2 = self.get_swap_delta(random_i, current_bin, d)
+                    # TODO
+                    # bin day nem vao bin khong day (1+)
+                    if np.sum(delta_1) <= 0 and np.sum(delta_2) <= 0 and new_violations_2[1] <= 0:
                         next_bins.append(d)
                         # next_bin = d
                         # break
