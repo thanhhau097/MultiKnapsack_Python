@@ -50,7 +50,7 @@ class MultiKnapsack:
         self.T = np.array(self.T)
         self.R = np.array(self.R)
 
-        self.ignored_bin = self.ignore_invalid_bin()
+        self.ignored_bin = []  # self.ignore_invalid_bin()
         # local search variable
         # can chuan hoa lai id cua t va r # tu 0 -> n_types, 0 -> n->bin
         # de su dung trong bin_t, bin_r
@@ -89,12 +89,12 @@ class MultiKnapsack:
         max_p_P = max(list(self.p) + list(self.P))
 
         # TODO
-        # need to config coef
-        self.w = self.normalize_violations(self.w, max_w_W_LW)
-        self.W = self.normalize_violations(self.W, max_w_W_LW)
-        self.LW = self.normalize_violations(self.LW, max_w_W_LW)
-        self.p = self.normalize_violations(self.p, max_p_P)
-        self.P = self.normalize_violations(self.P, max_p_P)
+        # # need to config coef
+        # self.w = self.normalize_violations(self.w, max_w_W_LW)
+        # self.W = self.normalize_violations(self.W, max_w_W_LW)
+        # self.LW = self.normalize_violations(self.LW, max_w_W_LW)
+        # self.p = self.normalize_violations(self.p, max_p_P)
+        # self.P = self.normalize_violations(self.P, max_p_P)
 
 
     def set_upper_bounds(self, W_ub, LW_ub, P_ub, T_ub, R_ub):
@@ -108,10 +108,12 @@ class MultiKnapsack:
         print("Ignoring bins")
         W = np.array(self.W)
         LW = np.array(self.LW)
+        P = np.array(self.P)
 
         ignored_bin_1 = set(np.where(W <= 0)[0])
         ignored_bin_2 = set(np.where(W <= LW)[0])
-        ignored_bin = list(ignored_bin_1.union(ignored_bin_2))
+        ignored_bin_3 = set(np.where(P <= 0)[0])
+        ignored_bin = list(ignored_bin_1.union(ignored_bin_2).union(ignored_bin_3))
 
         for i in tqdm(range(len(self.D))):
             for bin in (ignored_bin):
@@ -128,9 +130,16 @@ class MultiKnapsack:
         '''
         self.x = np.zeros([self.n, self.m])
 
-        with open('solution/mix_3k_lucky.json') as f:
+        # for i in range(self.n):
+        #     di = self.D[i]
+        #     b = np.random.choice(di)
+        #     self.x[i][b] = 1
+        #     self.bin_t[self.t[i]][b] += 1
+        #     self.bin_r[self.r[i]][b] += 1
+
+        with open('solution/solution_gr.json') as f:
             data = json.load(f)
-            bins = list(data["bin"])
+            bins = list(data["binIndex"])
             for i, b in enumerate(bins):
                 # print(i, b)
                 self.x[i][b] = 1
@@ -268,6 +277,7 @@ class MultiKnapsack:
         self.update_violations()
 
     def get_assign_delta(self, i, j, k):
+        # ERROR: when move item from one bin to last bin
         # NOTE: current version **just can be used for swap** or **one variable assignment**
         # gia su gan x[i][j] = k (k = 0 hoac k = 1)
         # anh huong den cac constraint nhu nao?
@@ -302,7 +312,8 @@ class MultiKnapsack:
             new_LW_violations = self.LW[j] - self.w[i]
 
         delta_LW_violations = self.get_violations_with(new_LW_violations, self.LW_upper_bound)\
-                              - self.get_violations_with(self.LW_violations[j], self.LW_upper_bound)  #
+                              - self.get_violations_with(self.LW_violations[j], self.LW_upper_bound)
+
 
         # P
         delta_p = self.p[i] * (k - self.x[i, j])
@@ -357,13 +368,6 @@ class MultiKnapsack:
         delta_R_violations = self.get_violations_with(new_R_violations, self.R_upper_bound) \
                              - self.get_violations_with(self.R_violations[j], self.R_upper_bound)
 
-        # total_delta_W_violations += delta_W_violations
-        # total_delta_LW_violations += delta_LW_violations
-        # total_delta_P_violations += delta_P_violations
-        # total_delta_T_violations += delta_T_violations
-        # total_delta_R_violations += delta_R_violations
-
-        # return total_delta_W_violations, total_delta_LW_violations, total_delta_P_violations, total_delta_T_violations, total_delta_R_violations
         return np.array([delta_W_violations, delta_LW_violations, delta_P_violations, delta_T_violations, delta_R_violations]), \
                (new_W_violations, new_LW_violations, new_P_violations, new_T_violations, new_R_violations)
 
@@ -427,125 +431,34 @@ class MultiKnapsack:
         return self.n_satisfied_items * 5 + self.get_violations()
 
     def search(self):
-        one_time = True
+        """
+        Search Stragety
+
+        Loop:
+            Step 1: Try to take all items from last bin to another bin which will not violate (because current_violations = 0) (k times)
+            Step 2: Distribute items from last bin to 0-bin (bin with 0 item)
+            Step 3: Local Search for all item, k times for each item
+            Step 4: Move all items from violating bin to last bin
+
+
+        :return:
+        """
+        print("INIT VIOLATIONS:", self.current_violations)
+
         while True:
             # TODO
             # viec khong co objective funtion lien ket giua item va violations la 1 han che, lam giam di so item hien thoa man (tru khi nem vao bin cuoi)
             # muc tieu phai la vua tang item, vua giam violations
-            self.solve_last_bin()
+            for i in range(2):
+                self.solve_last_bin()
 
-            # sau khi xu ly xong last bin, can nem tat ca item hien dang o bin cuoi sang nhung bin khac dang vi pham rang buoc
-            if one_time:
-                one_time = False
-                print("-------------------------------")
-                print("Taking items from last bin to another bin")
-                print("-------------------------------")
+            self.distribute_items_from_last_bin()
+            self.random_search(n_steps=10000)
+            self.gather_items_from_violating_bin_to_last_bin()
 
-                selected_bins = []
-                last_bin = self.m - 1
-
-                # bin_violations = self.get_all_bin_violations()
-                # for i, vio in enumerate(self.get_all_bin_violations()[::-1]):
-                #     if np.sum(self.x[:, last_bin - i]) == 0:
-                #         selected_bins.append(last_bin - i)
-                for i, vio in enumerate(self.get_all_bin_violations()):
-                    if (vio > 0) or (self.current_n_items_in_bin[i] == 0):
-                        selected_bins.append(i)
-
-                last_bin_items = np.where(self.x[:, last_bin] == 1)[0]
-
-                available_bins = set(selected_bins).difference(self.ignored_bin)
-
-                for i in tqdm(last_bin_items):
-                    # nam trong selected_bins intersection self.D[i] - self.ignored_bin
-                    available_bins = list(set(available_bins).intersection(set(self.D[i])))
-                    if len(available_bins) == 0:
-                        selected_bin = self.m - 1
-                    else:
-                        selected_bin = np.random.choice(available_bins)
-                        self.set_swap_propagate(i, last_bin, selected_bin)
-
-            self.update_violations()
-            print("-------------------------------")
-            print("After move from last bin to violated bin, violations =", self.current_violations)
-            print("-------------------------------")
-            # sau khi phan phoi nhu nay, cac bin rang buoc moi bi rang buoc nhieu -> co the nem vao bin da thoa man
-            # lam giam so items ma van giam duoc so luong rang buoc
-            # mat khac, no co the nem vao bin cuoi de giam het rang buoc
-
-            it = 0
-            while (it < 20000):
-                start_time = time.time()
-                random_i = np.random.randint(self.n)
-                current_bin = np.where(self.x[random_i, :] == 1)[0][0]
-                di = self.D[random_i].copy()
-                # di = np.random.choice(di, min(50, len(di))) # random 50 bins
-                # di[-1] = current_j
-
-                start_time_get_swap = time.time()
-                arr_delta_violations = []
-
-                # next_bin = self.m - 1
-                next_bins = []
-
-                for d in di:
-                    delta_1, delta_2, _, new_violations_2 = self.get_swap_delta(random_i, current_bin, d)
-                    # TODO
-                    # bin day nem vao bin khong day (1+)
-                    if np.sum(delta_1) <= 0 and np.sum(delta_2) <= 0 and new_violations_2[1] <= 0:
-                        next_bins.append(d)
-                        # next_bin = d
-                        # break
-                    # arr_delta_violations.append(np.sum(delta_1 + delta_2))
-
-                if (self.m - 1) in next_bins:
-                    next_bins.remove(self.m - 1)
-                if len(next_bins) == 0:
-                    next_bin = self.m - 1
-                else:
-                    next_bin = np.random.choice(next_bins)
-                end_time_get_swap = time.time()
-
-                # # chon random bin trong nhung bin tot nhat
-                # # arr_delta_violations = arr_delta_violations[:-1] # bo bin cuoi
-                # index_min = np.argmin(arr_delta_violations)
-                # indexes_min = np.where(arr_delta_violations == arr_delta_violations[index_min])[0]
-                # # tranh viec xep bin thoa man vao bin cuoi. lam sao de tranh xep bin thoa man vao bin vi pham, vi deltavio = 0?
-                # # TODO
-                # # if len(indexes_min) == 2:
-                # #     index_min = indexes_min[0]
-                # # else:
-                # indexes_min = list(indexes_min)
-                # if len(di) - 1 in indexes_min and len(indexes_min) > 1:
-                #     indexes_min.remove(len(di) - 1)
-                # index_min = np.random.choice(indexes_min)
-
-                start_time_propagate = time.time()
-                # next_bins.append(self.m - 1)
-                # next_bin = np.random.choice(next_bins)
-                if current_bin != next_bin:
-                    self.set_swap_propagate(random_i, current_bin, next_bin)
-                end_time_propagate = time.time()
-
-                n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
-                if n_items > self.n_satisfied_items:
-                    self.get_solution_file()
-                    self.n_satisfied_items = n_items
-                # violations = self.get_violations()
-                print("Step, ", it,
-                      # "\tViolations:", violations, "\t Items: ",
-                      "\tViolations:", np.sum(violations), "\t Items: ",
-                      n_items, "\t------>\t Take item ", random_i,
-                      "\tfrom bin ", current_bin, "\tto bin", next_bin,
-                      "\tget swap time:", "{:2.2}".format(end_time_get_swap - start_time_get_swap),
-                      "\t propagate time:", "{:2.2}".format(end_time_propagate - start_time_propagate),
-                      "\t in", "{:2.2}".format(time.time() - start_time), "s")
-
-                it += 1
+            # break
 
 
-    def append_violations(self, bin):
-        pass
 
     def solve_last_bin(self):
         # bin cuoi
@@ -566,24 +479,14 @@ class MultiKnapsack:
             di = self.D[item]
             arr_delta_violations = []
 
-            # for d in di:
-            #     delta_1, delta_2, _, _ = self.get_swap_delta(item, bin_index, d)
-            #     arr_delta_violations.append(np.sum(delta_1 + delta_2))
-            next_bin = self.m - 1
             for d in di:
                 delta_1, delta_2, _, _ = self.get_swap_delta(item, bin_index, d)
-                if np.sum(delta_1 + delta_2) <= 0 and np.sum(delta_2) <= 0:
-                    # next_bins.append(d)
-                    next_bin = d
-                    break
-
-
-            # arr_delta_violations = np.array(arr_delta_violations)
-            # index_min = np.argmin(arr_delta_violations)
-            # indexes_min = np.where(arr_delta_violations == arr_delta_violations[index_min])[0]
-            # index_min = np.random.choice(indexes_min)
-            # # if di[index_min] != bin_index:
-            # #     changed= True
+                arr_delta_violations.append(np.sum(delta_1 + delta_2))
+            arr_delta_violations = np.array(arr_delta_violations)
+            index_min = np.argmin(arr_delta_violations)
+            indexes_min = np.where(arr_delta_violations == arr_delta_violations[index_min])[0]
+            index_min = np.random.choice(indexes_min)
+            next_bin = di[index_min]
 
             self.set_swap_propagate(item, bin_index, next_bin)
 
@@ -596,9 +499,188 @@ class MultiKnapsack:
                   "\tfrom bin ", bin_index, "\tto bin", next_bin, "\t in", time.time() - start_time,
                   "seconds")
 
-    def search_with_most_violated_bins(self):
-        # vong lap: bin cuoi -> bin phat nhieu nhat -> bin cuoi -> ...
-        pass
+    def distribute_items_from_last_bin(self):
+        # sau khi xu ly xong last bin, can nem tat ca item hien dang o bin cuoi sang nhung bin khac dang vi pham rang buoc
+        print("-------------------------------")
+        print("Taking items from last bin to another bin")
+        print("-------------------------------")
+
+        selected_bins = []
+        last_bin = self.m - 1
+
+        # bin_violations = self.get_all_bin_violations()
+        # for i, vio in enumerate(self.get_all_bin_violations()[::-1]):
+        #     if np.sum(self.x[:, last_bin - i]) == 0:
+        #         selected_bins.append(last_bin - i)
+        for i, vio in enumerate(self.get_all_bin_violations()):
+            if (vio > 0) or (self.current_n_items_in_bin[i] == 0):
+                selected_bins.append(i)
+
+        last_bin_items = np.where(self.x[:, last_bin] == 1)[0]
+
+        available_bins = set(selected_bins).difference(self.ignored_bin)
+
+        count = 0
+        for i in tqdm(last_bin_items):
+            # nam trong selected_bins intersection self.D[i] - self.ignored_bin
+            available_bins = list(set(available_bins).intersection(set(self.D[i])))
+
+            if len(available_bins) == 0:
+                selected_bin = self.m - 1
+            else:
+                selected_bin = np.random.choice(available_bins)
+                count += 1
+            if selected_bin != last_bin:
+                start_time = time.time()
+                self.set_swap_propagate(i, last_bin, selected_bin)
+                n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
+                print("Step, ", count, "\tViolations:", np.sum(violations), "\t Items: ", n_items, "\t------>\t Take item ",
+                      i,
+                      "\tfrom bin ", last_bin, "\tto bin", selected_bin, "\t in", time.time() - start_time,
+                      "seconds")
+
+        self.update_violations()
+        print("-------------------------------")
+        print("---- MOVED", count, "ITEMS")
+        print("After move from last bin to violated bin, violations =", self.current_violations)
+        print("-------------------------------")
+        # sau khi phan phoi nhu nay, cac bin rang buoc moi bi rang buoc nhieu -> co the nem vao bin da thoa man
+        # lam giam so items ma van giam duoc so luong rang buoc
+        # mat khac, no co the nem vao bin cuoi de giam het rang buoc
+
+    def random_search(self, n_steps=1000):
+        print("-------------------------------")
+        print("SEARCHING .............")
+        print("-------------------------------")
+        it = 0
+        while (it < n_steps):
+            start_time = time.time()
+            random_i = np.random.randint(self.n)
+            current_bin = np.where(self.x[random_i, :] == 1)[0][0]
+            di = self.D[random_i].copy()
+            # di = np.random.choice(di, min(50, len(di))) # random 50 bins
+            # di[-1] = current_j
+
+            start_time_get_swap = time.time()
+            arr_delta_violations = []
+
+            # choose next bin
+            next_bins = []
+
+            for d in di:
+                delta_1, delta_2, new_violations_1, new_violations_2 = self.get_swap_delta(random_i, current_bin, d)
+                # TODO
+                # bin day nem vao bin khong day (1+)
+                # error: lay 1 item nem vao bin cuoi, vio tang
+                if np.sum(delta_1 + delta_2) <= 0 and np.sum(delta_2) <= 0 and \
+                        (np.sum(self.get_violations_with(np.array(new_violations_2))) <= 0 or d == current_bin):
+                # if np.sum(delta_1 + delta_2) <= 0 and np.sum(delta_2) <= 0:
+                    next_bins.append(d)
+                    # next_bin = d
+                    # break
+                    # arr_delta_violations.append(np.sum(delta_1 + delta_2))
+
+            if (self.m - 1) in next_bins:
+                next_bins.remove(self.m - 1)
+            if len(next_bins) == 0:
+                next_bin = self.m - 1
+            else:
+                next_bin = np.random.choice(next_bins)
+
+            end_time_get_swap = time.time()
+
+            start_time_propagate = time.time()
+            # next_bins.append(self.m - 1)
+            # next_bin = np.random.choice(next_bins)
+            if current_bin != next_bin:
+                self.set_swap_propagate(random_i, current_bin, next_bin)
+            end_time_propagate = time.time()
+
+            n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
+            # if n_items > self.n_satisfied_items:
+            #     self.get_solution_file()
+            #     self.n_satisfied_items = n_items
+            # violations = self.get_violations()
+            print("Step, ", it,
+                  # "\tViolations:", violations, "\t Items: ",
+                  "\tViolations:", np.sum(violations), "\t Items: ",
+                  n_items, "\t------>\t Take item ", random_i,
+                  "\tfrom bin ", current_bin, "\tto bin", next_bin,
+                  "\tget swap time:", "{:2.2}".format(end_time_get_swap - start_time_get_swap),
+                  "\t propagate time:", "{:2.2}".format(end_time_propagate - start_time_propagate),
+                  "\t in", "{:2.2}".format(time.time() - start_time), "s")
+
+            it += 1
+
+    def gather_items_from_violating_bin_to_last_bin(self):
+        self.update_violations()
+        print("-------------------------------")
+        print("GATHERING ITEMS FROM VIOLATING BIN TO LAST BIN")
+        print("CURRENT VIOLATIONS =", self.current_violations)
+        print("-------------------------------")
+        bin_violations = self.get_all_bin_violations()
+        bin_indexes = np.where(bin_violations > 0)[0]
+
+
+        i = 0
+        for bin_index in bin_indexes:
+            item_indexes = np.where(self.x[:, bin_index] == 1)[0]
+            np.random.shuffle(item_indexes)
+            for item in item_indexes:
+                start_time = time.time()
+                last_bin = self.m - 1
+
+                self.set_swap_propagate(item, bin_index, last_bin)
+                n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
+
+                i += 1
+                print("Step, ", i, "\tViolations:", np.sum(violations), "\t Items: ", n_items, "\t------>\t Take item ",
+                      item,
+                      "\tfrom bin ", bin_index, "\tto bin", last_bin, "\t in", time.time() - start_time,
+                      "seconds")
+
+
+        self.update_violations()
+        print("-------------------------------")
+        print("---- MOVED", i, "ITEMS")
+        print("After move from violated bin to last bin, violations =", self.current_violations)
+        print("-------------------------------")
+
+
+
+    def search_with_most_violated_bins(self, bin_index):
+        item_indexes = np.where(self.x[:, bin_index] == 1)[0]
+        print("-------------------------------")
+        print("Solving One Of Most Violated BIN")
+        print("-------------------------------")
+
+        np.random.shuffle(item_indexes)
+        for i, item in enumerate(item_indexes):
+            start_time = time.time()
+            di = self.D[item]
+            arr_delta_violations = []
+
+            for d in di:
+                delta_1, delta_2, _, _ = self.get_swap_delta(item, bin_index, d)
+                arr_delta_violations.append(np.sum(delta_1 + delta_2))
+            arr_delta_violations = np.array(arr_delta_violations)
+            index_min = np.argmin(arr_delta_violations)
+            indexes_min = np.where(arr_delta_violations == arr_delta_violations[index_min])[0]
+            index_min = np.random.choice(indexes_min)
+            next_bin = di[index_min]
+
+
+            self.set_swap_propagate(item, bin_index, next_bin)
+
+            n_items, violations = self.get_numbers_of_satisfied_items_and_violations()
+            if n_items > self.n_satisfied_items:
+                self.get_solution_file()
+                self.n_satisfied_items = n_items
+
+            print("Step, ", i, "\tViolations:", np.sum(violations), "\t Items: ", n_items, "\t------>\t Take item ",
+                  item,
+                  "\tfrom bin ", bin_index, "\tto bin", next_bin, "\t in", time.time() - start_time,
+                  "seconds")
 
     def get_solution_file(self, path='solution/solution.json'):
 
@@ -608,12 +690,16 @@ class MultiKnapsack:
                 bin_index = int(np.where(self.x[i, :])[0][0])
                 bin_indexes.append(bin_index)
             bin_indexes = list(bin_indexes)
-            solution = {"bin": bin_indexes}
+            solution = {"binIndex": bin_indexes}
             json.dump(solution, f)
 
+    def test(self):
+        self.gather_items_from_violating_bin_to_last_bin()
+        self.get_solution_file(path="solution/test_solution.json")
 
 solver = MultiKnapsack()
 solver.init_solution()
 solver.set_upper_bounds(1, 1, 1, 1, 1)
 solver.update_violations()
 solver.search()
+# solver.test()
